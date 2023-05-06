@@ -233,6 +233,65 @@ int main(int argc, char** argv) {
         width, height, channels
     );
 
+    // See Moodle
+/*
+#define smooth_kernel_size 9
+#define sigma 1.0
+
+    int main()
+    {
+        // based on https://stackoverflow.com/questions/54614167/trying-to-implement-gaussian-filter-in-c
+
+        double gauss[smooth_kernel_size][smooth_kernel_size];
+        double sum = 0;
+        int i, j;
+
+        for (i = 0; i < smooth_kernel_size; i++) {
+            for (j = 0; j < smooth_kernel_size; j++) {
+                double x = i - (smooth_kernel_size - 1) / 2.0;
+                double y = j - (smooth_kernel_size - 1) / 2.0;
+                gauss[i][j] = 1.0 / (2.0 * M_PI * pow(sigma, 2.0)) * exp(-(pow(x, 2) + pow(y, 2)) / (2 * pow(sigma, 2)));
+                sum += gauss[i][j];
+            }
+        }
+
+        for (i = 0; i < smooth_kernel_size; i++) {
+            for (j = 0; j < smooth_kernel_size; j++) {
+                gauss[i][j] /= sum;
+            }
+        }
+
+        printf("2D Gaussian filter kernel:\n");
+        for (i = 0; i < smooth_kernel_size; i++) {
+            for (j = 0; j < smooth_kernel_size; j++) {
+                printf("%f, ", gauss[i][j]);
+            }
+            printf("\n");
+        }
+
+        double gaussSeparated[smooth_kernel_size];
+
+        for (i = 0; i < smooth_kernel_size; i++) {
+            gaussSeparated[i] = sqrt(gauss[i][i]);
+        }
+
+        printf("1D Separated Gaussian filter kernel:\n");
+        for (i = 0; i < smooth_kernel_size; i++) {
+            printf("%f, ", gaussSeparated[i]);
+        }
+        printf("\n");
+
+        return 0;
+    }*/
+    cl_int smoothKernelDimension = 3;
+    size_t smoothKernelSize = sizeof(cl_float) * 9;
+    auto* smoothKernel = static_cast<cl_float *>(malloc(smoothKernelSize));
+    float smoothKernelInput[9] = {
+        0.000134, 0.004432, 0.053991,
+        0.241971, 0.398943, 0.241971,
+        0.053991, 0.004432, 0.000134
+    };
+    std::copy(smoothKernelInput, smoothKernelInput + 9, smoothKernel);
 
     const unsigned int elementSize = width * height;
     size_t dataSize = width * height * channels * sizeof(cl_uchar);
@@ -284,11 +343,21 @@ int main(int argc, char** argv) {
     checkStatus(status);
     cl_mem bufferHeight = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(cl_int), NULL, &status);
     checkStatus(status);
+    cl_mem bufferSmoothKernel = clCreateBuffer(context, CL_MEM_READ_ONLY, smoothKernelSize, NULL, &status);
+    checkStatus(status);
+    cl_mem bufferSmoothKernelDimension = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(cl_int), NULL, &status);
+    checkStatus(status);
 
     // write data from the input vectors to the buffers
     checkStatus(clEnqueueWriteBuffer(commandQueue, bufferImageInput, CL_TRUE, 0, dataSize, imageInput, 0, NULL, NULL));
     checkStatus(clEnqueueWriteBuffer(commandQueue, bufferWidth, CL_TRUE, 0, sizeof(cl_int), &width, 0, NULL, NULL));
     checkStatus(clEnqueueWriteBuffer(commandQueue, bufferHeight, CL_TRUE, 0, sizeof(cl_int), &height, 0, NULL, NULL));
+    printf("0");
+    checkStatus(clEnqueueWriteBuffer(commandQueue, bufferSmoothKernel, CL_TRUE, 0, smoothKernelSize, smoothKernel, 0, NULL, NULL));
+    printf("1");
+    checkStatus(clEnqueueWriteBuffer(commandQueue, bufferSmoothKernelDimension, CL_TRUE, 0, sizeof(cl_int), &smoothKernelDimension, 0, NULL, NULL));
+
+    printf("2");
 
     // read the kernel source
     const char* kernelFileName = "kernel/vector_add.cl";
@@ -323,6 +392,8 @@ int main(int argc, char** argv) {
     checkStatus(clSetKernelArg(kernel, 1, sizeof(cl_mem), &bufferImageOutput));
     checkStatus(clSetKernelArg(kernel, 2, sizeof(cl_mem), &bufferWidth));
     checkStatus(clSetKernelArg(kernel, 3, sizeof(cl_mem), &bufferHeight));
+    checkStatus(clSetKernelArg(kernel, 4, sizeof(cl_mem), &bufferSmoothKernel));
+    checkStatus(clSetKernelArg(kernel, 5, sizeof(cl_mem), &bufferSmoothKernelDimension));
 
 
     // output device capabilities
@@ -370,14 +441,20 @@ int main(int argc, char** argv) {
     /*free(vectorB);
     free(vectorA);*/
 
+    stbi_image_free(imageInput);
     free(imageOutput);
-    printf("2?");
+    free(smoothKernel);
 
     // release opencl objects
     checkStatus(clReleaseKernel(kernel));
     checkStatus(clReleaseProgram(program));
-    checkStatus(clReleaseMemObject(bufferImageOutput));
     checkStatus(clReleaseMemObject(bufferImageInput));
+    checkStatus(clReleaseMemObject(bufferHeight));
+    checkStatus(clReleaseMemObject(bufferWidth));
+    checkStatus(clReleaseMemObject(bufferImageOutput));
+    checkStatus(clReleaseMemObject(bufferSmoothKernel));
+    checkStatus(clReleaseMemObject(bufferSmoothKernelDimension));
+
     checkStatus(clReleaseCommandQueue(commandQueue));
     checkStatus(clReleaseContext(context));
 
