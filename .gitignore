@@ -1,0 +1,54 @@
+# Cmake
+cmake-build-debug
+cmake-build-debug-visual-studio
+cmake-build-release
+cmake-build-relase-visual-studio
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+bin
+!dependencies/freeglut/bin/
+!dependencies/assimp/bin/
+dependencies/assimp/bin/assimp-vc142-mtd.pdb
+dependencies/assimp/bin/assimp-vc142-mtd.ilk
+out
+
+# IDE
+.idea
+
+# CodeBlocks IDE
+*.cbp
+*.layout
+*.depend
+
+# VisualStudio
+.vs
+CMakeSettings.json
+
+# VisualStudioCode IDE
+.vscode/*
+#!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# VisualStudioCode Patch
+# Ignore all local history of files
+.history
+
+# Blender
+*.blend1
+*.blend2
+/cmake-build-release-visual-studio/
+
+# Excel
+~$graphs.xlsx
