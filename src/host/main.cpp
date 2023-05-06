@@ -10,6 +10,7 @@
 
 #include <fstream>
 #include <string>
+#include <iostream>
 
 #define STB_IMAGE_IMPLEMENTATION
 
@@ -166,44 +167,76 @@ void printVector(int32_t* vector, unsigned int elementSize, const char* label) {
     printf("\n");
 }
 
+struct Image {
+    cl_int width;
+    cl_int height;
+    cl_int channels;
+    size_t dataSize;
+    cl_uchar* data;
+};
+
+// Image loadImage(const std::string& filename) {
+//     int width, height, channels;
+//     cl_uchar* imageInput = stbi_load(
+//         "shuttle.png",
+//         &width, &height, &channels, 0
+//     );
+//     if (imageInput == nullptr) {
+//         printf("Error in loading the image\n");
+//         exit(1);
+//     }
+//     if (channels != 3) {
+//         printf("Unsupported channel size %i, only 3 is supported\n", channels);
+//     }
+//     printf(
+//         "Loaded image with a width of %dpx, a height of %dpx and %d channels\n",
+//         width, height, channels
+//     );
+//
+//     size_t dataSize = width * height * channels * sizeof(cl_uchar);
+//     auto* data = static_cast<cl_uchar *>(malloc(dataSize));
+//     for (auto h = 0, index = 0; h < height; ++h) {
+//         for (auto w = 0; w < width; ++w) {
+//             data[index] = imageInput[index++];
+//             data[index] = imageInput[index++];
+//             data[index] = imageInput[index++];
+//         }
+//     }
+//     stbi_image_free(imageInput);
+//
+//     return Image {
+//         width, height, channels, dataSize, data
+//     };
+// }
+
 int main(int argc, char** argv) {
-    int width, height, channels;
-    uint8_t* img = stbi_load("shuttle.png", &width, &height, &channels, 0);
-    if (img == nullptr) {
-        printf("Error in loading the image\n");
-        exit(1);
-    }
-    printf("Loaded image with a width of %dpx, a height of %dpx and %d channels\n", width, height, channels);
-
-    int index = 0;
-    auto* image = new uint8_t[width * height * channels];
-    for (auto h = 0; h < height; ++h) {
-        for (auto w = 0; w < width; ++w) {
-            image[index] = img[index++];
-            image[index] = img[index++];
-            image[index] = img[index++];
-        }
-    }
-    stbi_write_png(
-        "blurred.png", width, height,
-        channels, image, width * channels
-    );
-
-    stbi_image_free(img);
-    delete[] image;
-
-    return 0;
-
-
     // input and output arrays
-    const unsigned int elementSize = 10;
+    /*const unsigned int elementSize = 10;
     size_t dataSize = elementSize * sizeof(int32_t);
     int32_t* vectorA = static_cast<int32_t*>(malloc(dataSize));
     int32_t* vectorB = static_cast<int32_t*>(malloc(dataSize));
 
     for (unsigned int i = 0; i < elementSize; ++i) {
         vectorA[i] = static_cast<int32_t>(i);
+    }*/
+    cl_int width, height, channels;
+    cl_uchar* imageInput = stbi_load(
+        "shuttle.png",
+        &width, &height, &channels, 0
+    );
+    if (imageInput == nullptr) {
+        printf("Error in loading the image\n");
+        exit(1);
     }
+    printf(
+        "Loaded image with a width of %dpx, a height of %dpx and %d channels\n",
+        width, height, channels
+    );
+
+
+    const unsigned int elementSize = width * height;
+    size_t dataSize = width * height * channels * sizeof(cl_uchar);
+    auto* imageOutput = static_cast<cl_uchar *>(malloc(dataSize));
 
     // used for checking error status of api calls
     cl_int status;
@@ -243,13 +276,19 @@ int main(int argc, char** argv) {
     checkStatus(status);
 
     // allocate two input and one output buffer for the three vectors
-    cl_mem bufferA = clCreateBuffer(context, CL_MEM_READ_ONLY, dataSize, NULL, &status);
+    cl_mem bufferImageInput = clCreateBuffer(context, CL_MEM_READ_ONLY, dataSize, NULL, &status);
     checkStatus(status);
-    cl_mem bufferB = clCreateBuffer(context, CL_MEM_WRITE_ONLY, dataSize, NULL, &status);
+    cl_mem bufferImageOutput = clCreateBuffer(context, CL_MEM_WRITE_ONLY, dataSize, NULL, &status);
+    checkStatus(status);
+    cl_mem bufferWidth = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(cl_int), NULL, &status);
+    checkStatus(status);
+    cl_mem bufferHeight = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(cl_int), NULL, &status);
     checkStatus(status);
 
     // write data from the input vectors to the buffers
-    checkStatus(clEnqueueWriteBuffer(commandQueue, bufferA, CL_TRUE, 0, dataSize, vectorA, 0, NULL, NULL));
+    checkStatus(clEnqueueWriteBuffer(commandQueue, bufferImageInput, CL_TRUE, 0, dataSize, imageInput, 0, NULL, NULL));
+    checkStatus(clEnqueueWriteBuffer(commandQueue, bufferWidth, CL_TRUE, 0, sizeof(cl_int), &width, 0, NULL, NULL));
+    checkStatus(clEnqueueWriteBuffer(commandQueue, bufferHeight, CL_TRUE, 0, sizeof(cl_int), &height, 0, NULL, NULL));
 
     // read the kernel source
     const char* kernelFileName = "kernel/vector_add.cl";
@@ -276,12 +315,15 @@ int main(int argc, char** argv) {
     }
 
     // create the vector addition kernel
-    cl_kernel kernel = clCreateKernel(program, "vector_add", &status);
+    cl_kernel kernel = clCreateKernel(program, "gaussian_blur", &status);
     checkStatus(status);
 
     // set the kernel arguments
-    checkStatus(clSetKernelArg(kernel, 0, sizeof(cl_mem), &bufferA));
-    checkStatus(clSetKernelArg(kernel, 1, sizeof(cl_mem), &bufferB));
+    checkStatus(clSetKernelArg(kernel, 0, sizeof(cl_mem), &bufferImageInput));
+    checkStatus(clSetKernelArg(kernel, 1, sizeof(cl_mem), &bufferImageOutput));
+    checkStatus(clSetKernelArg(kernel, 2, sizeof(cl_mem), &bufferWidth));
+    checkStatus(clSetKernelArg(kernel, 3, sizeof(cl_mem), &bufferHeight));
+
 
     // output device capabilities
     size_t maxWorkGroupSize;
@@ -306,26 +348,36 @@ int main(int argc, char** argv) {
     // execute the kernel
     // ndrange capabilites only need to be checked when we specify a local work group size manually
     // in our case we provide NULL as local work group size, which means groups get formed automatically
-    size_t globalWorkSize = static_cast<size_t>(elementSize);
-    checkStatus(clEnqueueNDRangeKernel(commandQueue, kernel, 1, NULL, &globalWorkSize, NULL, 0, NULL, NULL));
+
+    std::cout << "width " << width << ", height " << height;
+
+    size_t globalWorkSize[2] = { static_cast<size_t>(width), static_cast<size_t>(height) }; // https://stackoverflow.com/a/31379085
+    checkStatus(clEnqueueNDRangeKernel(commandQueue, kernel, 2, NULL, globalWorkSize, NULL, 0, NULL, NULL));
 
     // read the device output buffer to the host output array
     // `clEnqueueReadBuffer` does not wait for the kernel unless `blocking_read` is set to `CL_TRUE`
-    checkStatus(clEnqueueReadBuffer(commandQueue, bufferB, CL_TRUE, 0, dataSize, vectorB, 0, NULL, NULL));
+    checkStatus(clEnqueueReadBuffer(commandQueue, bufferImageOutput, CL_TRUE, 0, dataSize, imageOutput, 0, NULL, NULL));
 
     // output result
-    printVector(vectorA, elementSize, "Input A");
-    printVector(vectorB, elementSize, "Input B");
+    /*printVector(vectorA, elementSize, "Input A");
+    printVector(vectorB, elementSize, "Input B");*/
+    stbi_write_png(
+        "blurred.png", width, height,
+        channels, imageOutput, width * channels
+    );
 
     // release allocated resources
-    free(vectorB);
-    free(vectorA);
+    /*free(vectorB);
+    free(vectorA);*/
+
+    free(imageOutput);
+    printf("2?");
 
     // release opencl objects
     checkStatus(clReleaseKernel(kernel));
     checkStatus(clReleaseProgram(program));
-    checkStatus(clReleaseMemObject(bufferB));
-    checkStatus(clReleaseMemObject(bufferA));
+    checkStatus(clReleaseMemObject(bufferImageOutput));
+    checkStatus(clReleaseMemObject(bufferImageInput));
     checkStatus(clReleaseCommandQueue(commandQueue));
     checkStatus(clReleaseContext(context));
 
