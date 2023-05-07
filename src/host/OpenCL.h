@@ -79,7 +79,7 @@ namespace OpenCL {
             size_t maxWorkGroupSize,
             cl_uint maxWorkItemDimensions,
             size_t* maxWorkItemSizes
-        )>
+        )> check
     );
 
     void enqueueKernel(

@@ -68,6 +68,7 @@ namespace OpenCL {
         cl_mem buffer = clCreateBuffer(app.context, flags, size, nullptr, &app.status);
         checkStatus(app.status);
 
+        // write data from the input to the buffers
         if (writeBuffer)
             checkStatus(clEnqueueWriteBuffer(
                 app.commandQueue, buffer,
@@ -81,6 +82,7 @@ namespace OpenCL {
     }
 
     void createKernel(App& app, const std::string& filename, const std::string& kernel) {
+        // read the kernel source
         std::ifstream ifs(filename);
         if (!ifs.good()) {
             printf("Error: Could not open kernel with file name %s!\n", filename.c_str());
@@ -107,17 +109,60 @@ namespace OpenCL {
         app.kernel = clCreateKernel(app.program, kernel.c_str(), &app.status);
         checkStatus(app.status);
 
+        // set the kernel arguments
         for (auto& arg : app.arguments) {
-            printf("arg %i\n", arg->index);
             checkStatus(clSetKernelArg(
                 app.kernel, arg->index, sizeof(cl_mem), &arg->buffer
             ));
         }
+    }
 
+    void checkDeviceCapabilities(
+        App& app,
+        std::function<bool(
+            size_t maxWorkGroupSize,
+            cl_uint maxWorkItemDimensions,
+            size_t* maxWorkItemSizes
+        )> check
+    ) {
+        // output device capabilities
+        size_t maxWorkGroupSize;
+        checkStatus(clGetDeviceInfo(
+            app.device, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t),
+            &maxWorkGroupSize, nullptr
+        ));
+        printf("Device Capabilities: Max work items in single group: %zu\n", maxWorkGroupSize);
 
+        cl_uint maxWorkItemDimensions;
+        checkStatus(clGetDeviceInfo(
+            app.device, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, sizeof(cl_uint),
+            &maxWorkItemDimensions, nullptr
+        ));
+        printf("Device Capabilities: Max work item dimensions: %u\n", maxWorkItemDimensions);
+
+        auto* maxWorkItemSizes = static_cast<size_t*>(malloc(maxWorkItemDimensions * sizeof(size_t)));
+        checkStatus(clGetDeviceInfo(
+            app.device, CL_DEVICE_MAX_WORK_ITEM_SIZES, maxWorkItemDimensions * sizeof(size_t),
+            maxWorkItemSizes,nullptr
+        ));
+        printf("Device Capabilities: Max work items in group per dimension:");
+        for (cl_uint i = 0; i < maxWorkItemDimensions; ++i)
+            printf(" %u:%zu", i, maxWorkItemSizes[i]);
+        printf("\n");
+
+        auto ok = check(maxWorkGroupSize, maxWorkItemDimensions, maxWorkItemSizes);
+        free(maxWorkItemSizes);
+
+        if (!ok) {
+            printf("Capability Error: Check returned false\n");
+            exit(EXIT_FAILURE);
+        }
     }
 
     void enqueueKernel(App& app, cl_uint workDimensions, size_t* globalWorkSize) {
+        // execute the kernel
+        // ndrange capabilites only need to be checked when we specify a local work group size manually
+        // in our case we provide NULL as local work group size, which means groups get formed automatically
         checkStatus(clEnqueueNDRangeKernel(
             app.commandQueue, app.kernel, workDimensions,
             nullptr, globalWorkSize, nullptr,
@@ -126,6 +171,8 @@ namespace OpenCL {
     }
 
     void readBuffer(App& app, std::shared_ptr<Argument> arg, cl_bool blockingRead) {
+        // read the device output buffer to the host output array
+        // `clEnqueueReadBuffer` does not wait for the kernel unless `blocking_read` is set to `CL_TRUE`
         checkStatus(clEnqueueReadBuffer(
             app.commandQueue, arg->buffer, blockingRead,
             0, arg->size, arg->pointer, 0, nullptr, nullptr
@@ -133,11 +180,9 @@ namespace OpenCL {
     }
 
     void release(App& app) {
-        printf("r1\n");
+        // release allocated resources
         checkStatus(clReleaseKernel(app.kernel));
-        printf("r2\n");
         checkStatus(clReleaseProgram(app.program));
-        printf("r3\n");
 
         for (auto& arg : app.arguments) {
             checkStatus(clReleaseMemObject(arg->buffer));
@@ -145,7 +190,6 @@ namespace OpenCL {
                 (*freeFn)(arg->pointer);
             }
         }
-
 
         checkStatus(clReleaseCommandQueue(app.commandQueue));
         checkStatus(clReleaseContext(app.context));
