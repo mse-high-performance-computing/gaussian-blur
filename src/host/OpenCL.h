@@ -8,8 +8,20 @@
 #include <string>
 #include <optional>
 #include <functional>
+#if _WIN32
 #include <CL/cl.h>
+#elif __APPLE__
+#include <OpenCL/opencl.h>
+#endif
 #include <memory>
+
+namespace {
+    std::string cl_errorstring(cl_int err);
+
+    void checkStatus(cl_int err);
+
+    void printCompilerError(cl_program program, cl_device_id device);
+}
 
 namespace OpenCL {
 
@@ -24,6 +36,10 @@ namespace OpenCL {
 
         bool writeBuffer;
         cl_mem buffer;
+
+        Argument(std::string  key, cl_uint index, void* pointer,
+                 const std::optional<std::function<void(void*)>>& free, size_t size, cl_mem_flags flags,
+                 bool writeBuffer, cl_mem buffer);
     };
 
 
@@ -40,23 +56,25 @@ namespace OpenCL {
 
     App setup();
 
-    void createKernel(
-        const std::string& filename,
-        const std::string& kernel
-    );
-
     std::shared_ptr<Argument> addArgument(
         App& app,
-        std::string key,
+        const std::string& key,
         cl_uint index,
         void* pointer,
-        std::optional<std::function<void(void*)>> free,
+        const std::optional<std::function<void(void*)>>& free,
         size_t size,
         cl_mem_flags flags,
         bool writeBuffer
     );
 
+    void createKernel(
+        App& app,
+        const std::string& filename,
+        const std::string& kernel
+    );
+
     void checkDeviceCapabilities(
+        App& app,
         std::function<bool(
             size_t maxWorkGroupSize,
             cl_uint maxWorkItemDimensions,
@@ -65,16 +83,18 @@ namespace OpenCL {
     );
 
     void enqueueKernel(
+        App& app,
         cl_uint workDimensions,
         size_t* globalWorkSize
     );
 
     void readBuffer(
-        std::shared_ptr<Argument>,
+        App& app,
+        std::shared_ptr<Argument> arg,
         cl_bool blockingRead
     );
 
-    void release();
+    void release(App& app);
 
 
 
