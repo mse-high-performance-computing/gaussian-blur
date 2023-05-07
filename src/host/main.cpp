@@ -1,16 +1,7 @@
-#define CL_USE_DEPRECATED_OPENCL_1_2_APIS
 
-#if _WIN32
 
-#include <CL/cl.h>
-
-#elif __APPLE__
-#include <OpenCL/opencl.h>
-#endif
-
-#include <fstream>
 #include <string>
-#include <iostream>
+#include <sstream>
 
 #define STB_IMAGE_IMPLEMENTATION
 
@@ -22,73 +13,26 @@
 #include "OpenCL.h"
 
 
-void printVector(int32_t* vector, unsigned int elementSize, const char* label) {
-    printf("%s:\n", label);
-
-    for (unsigned int i = 0; i < elementSize; ++i) {
-        printf("%d ", vector[i]);
-    }
-
-    printf("\n");
-}
-
 struct Image {
     cl_int width;
     cl_int height;
     cl_int channels;
-    size_t dataSize;
+    size_t size;
     cl_uchar* data;
 };
 
-// Image loadImage(const std::string& filename) {
-//     int width, height, channels;
-//     cl_uchar* imageInput = stbi_load(
-//         "shuttle.png",
-//         &width, &height, &channels, 0
-//     );
-//     if (imageInput == nullptr) {
-//         printf("Error in loading the image\n");
-//         exit(1);
-//     }
-//     if (channels != 3) {
-//         printf("Unsupported channel size %i, only 3 is supported\n", channels);
-//     }
-//     printf(
-//         "Loaded image with a width of %dpx, a height of %dpx and %d channels\n",
-//         width, height, channels
-//     );
-//
-//     size_t dataSize = width * height * channels * sizeof(cl_uchar);
-//     auto* data = static_cast<cl_uchar *>(malloc(dataSize));
-//     for (auto h = 0, index = 0; h < height; ++h) {
-//         for (auto w = 0; w < width; ++w) {
-//             data[index] = imageInput[index++];
-//             data[index] = imageInput[index++];
-//             data[index] = imageInput[index++];
-//         }
-//     }
-//     stbi_image_free(imageInput);
-//
-//     return Image {
-//         width, height, channels, dataSize, data
-//     };
-// }
-
-int main(int argc, char** argv) {
-    printf("gaussian-blur\n");
-    std::vector<std::string> args(&argv[0], &argv[0 + argc]);
-    args.erase(args.begin());
-
-    auto argsCount = args.size();
-
-
-    cl_int width, height, channels;
-    cl_uchar* imageInput = stbi_load(
-        "shuttle.png",
+Image loadImage(const std::string& filename) {
+    int width, height, channels;
+    cl_uchar* data = stbi_load(
+        filename.c_str(),
         &width, &height, &channels, 0
     );
-    if (imageInput == nullptr) {
+    if (data == nullptr) {
         printf("Error in loading the image\n");
+        exit(1);
+    }
+    if (channels != 3) {
+        printf("Unsupported channel size %i, only 3 is supported\n", channels);
         exit(1);
     }
     printf(
@@ -96,22 +40,88 @@ int main(int argc, char** argv) {
         width, height, channels
     );
 
-    cl_int smoothKernelDimension = 3;
-    size_t smoothKernelSize = sizeof(cl_float) * 9;
-    // auto* smoothKernel = static_cast<cl_float*>(malloc(smoothKernelSize));
+    size_t size = width * height * channels * sizeof(cl_uchar);
 
-    // Initialised on stack
-    float smoothKernel[9] = {
-        0.000134, 0.004432, 0.053991,
-        0.241971, 0.398943, 0.241971,
-        0.053991, 0.004432, 0.000134
+    return Image {
+        width, height, channels, size, data
     };
-    // std::copy(smoothKernelInput, smoothKernelInput + 9, smoothKernel);
+}
 
-    const unsigned int elementSize = width * height;
-    size_t dataSize = width * height * channels * sizeof(cl_uchar);
-    auto* imageOutput = static_cast<cl_uchar*>(malloc(dataSize));
+struct SmoothKernel {
+    cl_int dimension;
+    size_t size;
+    cl_float * data;
+};
 
+void removeChar(std::string& str, char c) {
+    str.erase(std::remove(str.begin(), str.end(), c), str.end());
+}
+
+std::vector<std::string> splitStr(std::string& str, char delimiter) {
+    std::vector<std::string> values;
+    std::stringstream stream(str);
+    std::string tmp;
+    while (std::getline(stream, tmp, delimiter))
+        values.push_back(tmp);
+    return values;
+}
+
+cl_float* strToFloat(std::vector<std::string>& strings) {
+    auto* values = static_cast<cl_float*>(malloc(sizeof(cl_float) * strings.size()));
+    for (int i = 0; i < strings.size(); ++i) {
+        values[i] = std::stof(strings[i]);
+    }
+    return values;
+}
+
+SmoothKernel loadSmoothKernel(const std::string& kernelInput) {
+    auto kernelRaw = kernelInput;
+    removeChar(kernelRaw, '(');
+    removeChar(kernelRaw, ')');
+    auto kernelSplit = splitStr(kernelRaw, ',');
+    // Check if dimension is ok (odd + perfect square)
+    auto length = kernelSplit.size();
+    long long dimension = std::floor(sqrt(length));
+    if (dimension * dimension == length && length && length % 2 != 0) {
+        auto data = strToFloat(kernelSplit);
+        auto size = length * sizeof(cl_float);
+        return SmoothKernel {static_cast<cl_int>((cl_uint)dimension), size, data };
+    } else {
+        printf("Unsupported kernel size: %zu\n", length);
+        exit(1);
+    }
+}
+
+int main(int argc, char** argv) {
+    printf("gaussian-blur\n");
+    std::vector<std::string> args(&argv[0], &argv[0 + argc]);
+    args.erase(args.begin());
+
+    auto argsCount = args.size();
+    std::string filename;
+    std::string kernelInput;
+
+    if (argsCount == 1) {
+        filename = args[0];
+        kernelInput = "(0.000134,0.004432,0.053991,"
+                      "0.241971,0.398943,0.241971,"
+                      "0.053991,0.004432,0.000134)";
+    } else if (argsCount == 2) {
+        filename = args[0];
+        kernelInput = args[1];
+    } else {
+        printf("Invalid input\n");
+        printf("Usage [filename] [optional: kernel]\n");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Parameters:\n");
+    printf("  File: %s\n", filename.c_str());
+    printf("  Kernel: %s\n", kernelInput.c_str());
+
+    auto imageInput = loadImage(filename);
+    auto* imageOutput = static_cast<cl_uchar*>(malloc(imageInput.size));
+    auto smoothKernel = loadSmoothKernel(kernelInput);
 
     // select the platform
     // retrieve the number of devices
@@ -122,29 +132,29 @@ int main(int argc, char** argv) {
 
     // allocate buffers
     OpenCL::addArgument(
-        app, "imageInput", 0, imageInput,
+        app, "imageInput", 0, imageInput.data,
         [](void* pointer) { stbi_image_free(pointer); },
-        dataSize, CL_MEM_READ_ONLY, true
+        imageInput.size, CL_MEM_READ_ONLY, true
     );
     auto outArg = OpenCL::addArgument(
         app, "imageOutput", 1, imageOutput,
         [](void* pointer) { free(pointer); },
-        dataSize, CL_MEM_WRITE_ONLY, false
+        imageInput.size, CL_MEM_WRITE_ONLY, false
     );
     OpenCL::addArgument(
-        app, "width", 2, &width, std::nullopt,
+        app, "width", 2, &imageInput.width, std::nullopt,
         sizeof(cl_int), CL_MEM_READ_ONLY, true
     );
     OpenCL::addArgument(
-        app, "height", 3, &height, std::nullopt,
+        app, "height", 3, &imageInput.height, std::nullopt,
         sizeof(cl_int), CL_MEM_READ_ONLY, true
     );
     OpenCL::addArgument(
-        app, "smoothKernel", 4, smoothKernel,std::nullopt,
-        smoothKernelSize, CL_MEM_READ_ONLY, true
+        app, "smoothKernel", 4, smoothKernel.data, std::nullopt,
+        smoothKernel.size, CL_MEM_READ_ONLY, true
     );
     OpenCL::addArgument(
-        app, "smoothKernelDimension", 5, &smoothKernelDimension, std::nullopt,
+        app, "smoothKernelDimension", 5, &smoothKernel.dimension, std::nullopt,
         sizeof(cl_int), CL_MEM_READ_ONLY, true
     );
 
@@ -153,10 +163,12 @@ int main(int argc, char** argv) {
     // build the program
     // create the given kernel
     // set the kernel arguments
-    OpenCL::createKernel(app, "kernel/vector_add.cl", "gaussian_blur");
+    OpenCL::createKernel(app, "kernel/gaussian_blur.cl", "gaussian_blur");
 
     // check device capabilities
     // check if image fits
+    size_t width = imageInput.width;
+    size_t height = imageInput.height;
     OpenCL::checkDeviceCapabilities(app, [width, height](auto maxWorkGroupSize, auto maxWorkItemDimensions, auto* maxWorkItemSizes) {
         if (maxWorkItemDimensions < 2) return false;
         if (maxWorkItemSizes[0] < width) return false;
@@ -167,8 +179,7 @@ int main(int argc, char** argv) {
     // execute the kernel
     // ndrange capabilites only need to be checked when we specify a local work group size manually
     // in our case we provide NULL as local work group size, which means groups get formed automatically
-    size_t globalWorkSize[2] = {static_cast<size_t>(width),
-                                static_cast<size_t>(height)}; // https://stackoverflow.com/a/31379085
+    size_t globalWorkSize[2] = {width, height}; // https://stackoverflow.com/a/31379085
     OpenCL::enqueueKernel(app, 2, globalWorkSize);
 
     // read the device output buffer to the host output array
@@ -176,9 +187,10 @@ int main(int argc, char** argv) {
 
     // output result to file
     stbi_write_png(
-        "blurred.png", width, height,
-        channels, imageOutput, width * channels
+        "blurred.png", imageInput.width, imageInput.height,
+        imageInput.channels, imageOutput, imageInput.width * imageInput.channels
     );
+    printf("Blurred image written in 'blurred.png'\n");
 
     // release allocated resources
     OpenCL::release(app);

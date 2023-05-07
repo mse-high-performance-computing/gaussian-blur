@@ -1,20 +1,3 @@
-/*
-* a kernel that add the elements of two vectors pairwise
-*/
-__kernel void vector_add(
-	__global const int *A,
-	__global int *B)
-{
-	size_t i = get_global_id(0);
-	// Number of global work-items
-	size_t size = get_global_size(0);
-
-	if (i < size-1) {
-		B[i] = A[i] + A[i+1];
-	} else {
-		B[i] = A[i];
-	}
-}
 
 __kernel void gaussian_blur(
 	__global const uchar *A,
@@ -30,7 +13,7 @@ __kernel void gaussian_blur(
 	size_t channels = 3;
 
 	size_t index = 3 * (y * (*width) + x);
-	if (x == 255 && y == 511) {
+	/*if (x == 255 && y == 511) {
 		// printf("x %i, y %i, index %i, width %i, height %i", x, y, index, width, height);
 		int baum = *width;
 		int baum2 = *height;
@@ -43,7 +26,7 @@ __kernel void gaussian_blur(
 		printf("height %i\n", baum2);
 		printf("dim %i\n", *smoothKernelDimension);
 		printf("---\n");
-	}
+	}*/
 
 	float red = 0;
 	float green = 0;

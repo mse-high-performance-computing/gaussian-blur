@@ -20,3 +20,9 @@ set(KERNEL_DIR ${PROJECT_SOURCE_DIR}/src/kernel)
 add_custom_command(TARGET ${PROJECT_NAME}
         POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${KERNEL_DIR} ${CMAKE_BINARY_DIR}/kernel)
+
+# Copy images to output directory
+set(IMAGE_DIR ${PROJECT_SOURCE_DIR}/images)
+add_custom_command(TARGET ${PROJECT_NAME}
+        POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${IMAGE_DIR} ${CMAKE_BINARY_DIR}/images)

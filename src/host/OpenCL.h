@@ -5,14 +5,17 @@
 #ifndef GAUSSIAN_BLUR_OPENCL_H
 #define GAUSSIAN_BLUR_OPENCL_H
 
-#include <string>
-#include <optional>
-#include <functional>
+
+#define CL_USE_DEPRECATED_OPENCL_1_2_APIS
 #if _WIN32
 #include <CL/cl.h>
 #elif __APPLE__
 #include <OpenCL/opencl.h>
 #endif
+
+#include <string>
+#include <optional>
+#include <functional>
 #include <memory>
 
 namespace {
@@ -41,8 +44,6 @@ namespace OpenCL {
                  const std::optional<std::function<void(void*)>>& free, size_t size, cl_mem_flags flags,
                  bool writeBuffer, cl_mem buffer);
     };
-
-
 
     struct App {
         cl_int status;
