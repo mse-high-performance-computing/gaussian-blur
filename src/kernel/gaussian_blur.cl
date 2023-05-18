@@ -12,52 +12,36 @@ __kernel void gaussian_blur(
 	size_t y = get_global_id(1);
 	size_t channels = 3;
 
-	size_t index = 3 * (y * (*width) + x);
-	/*if (x == 255 && y == 511) {
-		// printf("x %i, y %i, index %i, width %i, height %i", x, y, index, width, height);
-		int baum = *width;
-		int baum2 = *height;
-		printf("---\n");
-		printf("index %i\n", index);
-		printf("index %i\n", A[index]);
-		printf("x %i\n", x);
-		printf("y %i\n", y);
-		printf("width %i\n", baum);
-		printf("height %i\n", baum2);
-		printf("dim %i\n", *smoothKernelDimension);
-		printf("---\n");
-	}*/
-
 	float red = 0;
 	float green = 0;
 	float blue = 0;
 
+	// Apply gauss kernel
 	for (int i = 0; i < (*smoothKernelDimension); i++) {
 		int kY = y + (i - (*smoothKernelDimension/2));
+		// Border handling, use nearest valid pixel
 		if (kY < 0 || kY >= (*height)) 
 			kY = y;
 		
 		for (int j = 0; j < (*smoothKernelDimension); j++) {
 			int kX = x + (j - (*smoothKernelDimension/2));
+			// Border handling, use nearest valid pixel
 			if (kX < 0 || kX >= (*width)) 
 				kX = x;
 			
-			red += A[3 * (kY * (*width) + kX)] 
-			* smoothKernel[(i * (*smoothKernelDimension) + j)];
-			green += A[3 * (kY * (*width) + kX) + 1] 
-			* smoothKernel[(i * (*smoothKernelDimension) + j)];
-			blue += A[3 * (kY * (*width) + kX) + 2]  
-			* smoothKernel[(i * (*smoothKernelDimension) + j)];
+			size_t index = channels * (kY * (*width) + kX);
+			size_t kernelIndex = (i * (*smoothKernelDimension) + j);
+			red += A[index] * smoothKernel[kernelIndex];
+			green += A[index + 1] * smoothKernel[kernelIndex];
+			blue += A[index + 2] * smoothKernel[kernelIndex];
 		}
 	}
 
-	// red /= (*smoothKernelDimension);
-	// blue /= (*smoothKernelDimension);
-    // green /= (*smoothKernelDimension);
-
-
+	// Write results for each color component
+	// Three consecutive color components represent one pixel
+	size_t index = channels * (y * (*width) + x);
 	B[index] = red;
-	B[index+1] = green;
-	B[index+2] = blue;
+	B[index + 1] = green;
+	B[index + 2] = blue;
 }
 
