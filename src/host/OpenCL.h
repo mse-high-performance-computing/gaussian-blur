@@ -44,6 +44,8 @@ namespace OpenCL {
         Argument(std::string  key, cl_uint index, void* pointer,
                  const std::optional<std::function<void(void*)>>& free, size_t size, cl_mem_flags flags,
                  bool writeBuffer, cl_mem buffer);
+
+        void freeResources();
     };
 
     struct App {
@@ -67,6 +69,13 @@ namespace OpenCL {
         size_t size,
         cl_mem_flags flags,
         bool writeBuffer
+    );
+
+    std::shared_ptr<Argument> addLocalArgument(
+        App& app,
+        const std::string& key,
+        cl_uint index,
+        size_t size
     );
 
     void removeArgument(App& app, const std::shared_ptr<Argument>& arg);

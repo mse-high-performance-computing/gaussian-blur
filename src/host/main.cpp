@@ -119,6 +119,8 @@ int main(int argc, char** argv) {
     printf("  Kernel: %s\n", kernelInput.c_str());
 
     auto imageInput = loadImage(filename);
+    size_t width = imageInput.width;
+    size_t height = imageInput.height;
     auto* tmpImage = static_cast<cl_uchar*>(malloc(imageInput.size));
     auto smoothKernel = loadSmoothKernel(kernelInput);
 
@@ -161,6 +163,8 @@ int main(int argc, char** argv) {
         app, "horizontal", 6, &isHorizontal, std::nullopt,
         sizeof(cl_bool), CL_MEM_READ_ONLY, true
     );
+    OpenCL::addLocalArgument(app, "pixel", 7, width * sizeof(cl_uchar));
+
 
     // read the kernel source
     // create the program
@@ -171,8 +175,6 @@ int main(int argc, char** argv) {
 
     // check device capabilities
     // check if image fits
-    size_t width = imageInput.width;
-    size_t height = imageInput.height;
     OpenCL::checkDeviceCapabilities(app, [width, height](auto maxWorkGroupSize, auto maxWorkItemDimensions, auto* maxWorkItemSizes) {
         if (maxWorkItemDimensions < 2) return false;
         if (maxWorkItemSizes[0] < width) return false;

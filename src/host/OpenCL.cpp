@@ -16,6 +16,15 @@ namespace OpenCL {
                                                           size(size), flags(flags), writeBuffer(writeBuffer),
                                                           buffer(buffer) {}
 
+    void Argument::freeResources() {
+        if (buffer == nullptr) return; // local memory
+
+        checkStatus(clReleaseMemObject(buffer));
+        if (auto freeFn = free) {
+            (*freeFn)(pointer);
+        }
+    }
+
     App setup() {
         cl_int status;
         // retrieve the number of platforms
@@ -87,12 +96,26 @@ namespace OpenCL {
         return arg;
     }
 
+    std::shared_ptr<Argument> addLocalArgument(
+        App& app,
+        const std::string& key,
+        cl_uint index,
+        size_t size
+    ) {
+        if (app.arguments.count(index)) {
+            printf("Error: Argument %i already present", index);
+            throw std::runtime_error("Argument " + std::to_string(index) + " already present");
+        }
+
+        auto arg = std::make_shared<Argument>(key, index, nullptr, free, size, CL_MEM_FLAGS, false, nullptr);
+        app.arguments.insert({index, arg});
+
+        return arg;
+    }
+
     void removeArgument(App& app, const std::shared_ptr<Argument>& arg) {
         // Free resources
-        checkStatus(clReleaseMemObject(arg->buffer));
-        if (auto freeFn = arg->free) {
-            (*freeFn)(arg->pointer);
-        }
+        arg->freeResources();
         app.arguments.erase(arg->index);
     }
 
@@ -136,16 +159,40 @@ namespace OpenCL {
 
         // set the kernel arguments
         for (auto& [_, arg] : app.arguments) {
+
+            // checkStatus(clSetKernelArg(
+            //     app.kernel, 7, 512*sizeof(cl_uchar), nullptr
+            // ));
+            //
+            // auto baum = &arg->buffer;
+            // if (arg->buffer != nullptr) {
+            //     checkStatus(clSetKernelArg(
+            //         app.kernel, arg->index, sizeof(cl_mem), &arg->buffer
+            //     ));
+            // } else {
+            //     checkStatus(clSetKernelArg(
+            //         app.kernel, arg->index, arg->size, nullptr
+            //     ));
+            // }
+
+            // Differentiate between global & local (buffer=nullptr) arguments
+            auto argSize = arg->buffer == nullptr ? arg->size : sizeof(cl_mem);
+            auto argValue = arg->buffer == nullptr ? nullptr : &arg->buffer;
+            // printf("hey %i\n", arg->index);
+            // printf("hey2 %llu\n", argSize);
             checkStatus(clSetKernelArg(
-                app.kernel, arg->index, sizeof(cl_mem), &arg->buffer
+                app.kernel, arg->index, argSize, argValue
             ));
+            // printf("hey %i\n", arg->index);
         }
     }
 
     void refreshKernelArguments(App& app) {
         for (auto& [_, arg] : app.arguments) {
+            auto argSize = arg->buffer == nullptr ? arg->size : sizeof(cl_mem);
+            auto argValue = arg->buffer == nullptr ? nullptr : &arg->buffer;
             checkStatus(clSetKernelArg(
-                app.kernel, arg->index, sizeof(cl_mem), &arg->buffer
+                app.kernel, arg->index, argSize, argValue
             ));
         }
     }
@@ -222,10 +269,7 @@ namespace OpenCL {
         checkStatus(clReleaseProgram(app.program));
 
         for (auto& [_, arg] : app.arguments) {
-            checkStatus(clReleaseMemObject(arg->buffer));
-            if (auto freeFn = arg->free) {
-                (*freeFn)(arg->pointer);
-            }
+            arg->freeResources();
         }
 
         checkStatus(clReleaseCommandQueue(app.commandQueue));

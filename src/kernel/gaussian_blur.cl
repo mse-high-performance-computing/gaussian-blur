@@ -6,7 +6,8 @@ __kernel void gaussian_blur(
 	__constant int *height,
 	__constant float *smoothKernel,
 	__constant int *smoothKernelDimension,
-	__constant bool *horizontal
+	__constant bool *horizontal,
+	__local uchar* pixel
 )
 {
 	size_t x = get_global_id(0);
