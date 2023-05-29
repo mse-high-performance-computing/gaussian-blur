@@ -13,44 +13,42 @@ __kernel void gaussian_blur(
 	size_t y = get_global_id(1);
 	size_t channels = 3;
 
-	size_t N = (*smoothKernelDimension) * (*smoothKernelDimension);
-
-	size_t index = 3 * (y * (*width) + x);
-
 	float red = 0;
 	float green = 0;
 	float blue = 0;
 
+	// Apply gauss kernel
 	if (*horizontal) {
-		for (int i = 0; i < N; i++) {
-			int kX = x + (i - (N/2));
+		for (int i = 0; i < (*smoothKernelDimension); i++) {
+			int kX = x + (i - ((*smoothKernelDimension)/2));
+			// Border handling, use nearest valid pixel
 			if (kX < 0 || kX >= (*width)) 
 				kX = x;
 			
-			red += A[3 * (y * (*width) + kX)]
-			* smoothKernel[i];
-			green += A[3 * (y * (*width) + kX) + 1]
-			* smoothKernel[i];
-			blue += A[3 * (y * (*width) + kX) + 2]
-			* smoothKernel[i];
+			size_t index = channels * (y * (*width) + kX);
+			red += A[index] * smoothKernel[i];
+			green += A[index + 1] * smoothKernel[i];
+			blue += A[index + 2] * smoothKernel[i];
 		}
 	} else {
-		for (int i = 0; i < N; i++) {
-			int kY = y + (i - (N/2));
+		for (int i = 0; i < (*smoothKernelDimension); i++) {
+			int kY = y + (i - ((*smoothKernelDimension)/2));
+			// Border handling, use nearest valid pixel
 			if (kY < 0 || kY >= (*height)) 
 				kY = y;
 			
-			red += A[3 * (kY * (*width) + x)] 
-			* smoothKernel[i];
-			green += A[3 * (kY * (*width) + x) + 1] 
-			* smoothKernel[i];
-			blue += A[3 * (kY * (*width) + x) + 2]  
-			* smoothKernel[i];
+			size_t index = channels * (kY * (*width) + x);
+			red += A[index] * smoothKernel[i];
+			green += A[index + 1] * smoothKernel[i];
+			blue += A[index + 2] * smoothKernel[i];
 		}
 	}
 
+	// Write results for each color component
+	// Three consecutive color components represent one pixel
+	size_t index = channels * (y * (*width) + x);
 	B[index] = red;
-	B[index+1] = green;
-	B[index+2] = blue;
+	B[index + 1] = green;
+	B[index + 2] = blue;
 }
 
