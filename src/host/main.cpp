@@ -163,7 +163,7 @@ int main(int argc, char** argv) {
         app, "horizontal", 6, &isHorizontal, std::nullopt,
         sizeof(cl_bool), CL_MEM_READ_ONLY, true
     );
-    OpenCL::addLocalArgument(app, "pixel", 7, width * sizeof(cl_uchar));
+    auto pixelArg = OpenCL::addLocalArgument(app, "pixel", 7, width * imageInput.channels * sizeof(cl_uchar));
 
 
     // read the kernel source
@@ -212,6 +212,9 @@ int main(int argc, char** argv) {
         [](void* pointer) { free(pointer); },
         imageInput.size, CL_MEM_WRITE_ONLY, false
     );
+    // local memory pixel cache
+    OpenCL::removeArgument(app, pixelArg);
+    OpenCL::addLocalArgument(app, "pixel", 7, height * imageInput.channels * sizeof(cl_uchar));
     // Apply new arguments
     OpenCL::refreshKernelArguments(app);
 

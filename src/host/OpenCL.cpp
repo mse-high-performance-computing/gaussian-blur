@@ -158,37 +158,12 @@ namespace OpenCL {
         checkStatus(app.status);
 
         // set the kernel arguments
-        for (auto& [_, arg] : app.arguments) {
-
-            // checkStatus(clSetKernelArg(
-            //     app.kernel, 7, 512*sizeof(cl_uchar), nullptr
-            // ));
-            //
-            // auto baum = &arg->buffer;
-            // if (arg->buffer != nullptr) {
-            //     checkStatus(clSetKernelArg(
-            //         app.kernel, arg->index, sizeof(cl_mem), &arg->buffer
-            //     ));
-            // } else {
-            //     checkStatus(clSetKernelArg(
-            //         app.kernel, arg->index, arg->size, nullptr
-            //     ));
-            // }
-
-            // Differentiate between global & local (buffer=nullptr) arguments
-            auto argSize = arg->buffer == nullptr ? arg->size : sizeof(cl_mem);
-            auto argValue = arg->buffer == nullptr ? nullptr : &arg->buffer;
-            // printf("hey %i\n", arg->index);
-            // printf("hey2 %llu\n", argSize);
-            checkStatus(clSetKernelArg(
-                app.kernel, arg->index, argSize, argValue
-            ));
-            // printf("hey %i\n", arg->index);
-        }
+        refreshKernelArguments(app);
     }
 
     void refreshKernelArguments(App& app) {
         for (auto& [_, arg] : app.arguments) {
+            // Differentiate between global & local (buffer=nullptr) memory arguments
             auto argSize = arg->buffer == nullptr ? arg->size : sizeof(cl_mem);
             auto argValue = arg->buffer == nullptr ? nullptr : &arg->buffer;
             checkStatus(clSetKernelArg(
@@ -229,6 +204,10 @@ namespace OpenCL {
         for (cl_uint i = 0; i < maxWorkItemDimensions; ++i)
             printf(" %u:%zu", i, maxWorkItemSizes[i]);
         printf("\n");
+
+        cl_ulong size;
+        clGetDeviceInfo(app.device, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(cl_ulong), &size, 0);
+        printf("Device Capabilities: Max local memory: %llu\n", size);
 
         auto ok = check(maxWorkGroupSize, maxWorkItemDimensions, maxWorkItemSizes);
         free(maxWorkItemSizes);
