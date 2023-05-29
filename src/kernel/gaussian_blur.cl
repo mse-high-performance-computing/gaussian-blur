@@ -13,6 +13,8 @@ __kernel void gaussian_blur(
 	size_t y = get_global_id(1);
 	size_t channels = 3;
 
+	size_t N = (*smoothKernelDimension) * (*smoothKernelDimension);
+
 	size_t index = 3 * (y * (*width) + x);
 	/*if (x == 255 && y == 511) {
 		// printf("x %i, y %i, index %i, width %i, height %i", x, y, index, width, height);
@@ -34,31 +36,31 @@ __kernel void gaussian_blur(
 	float blue = 0;
 
 	if(*horizontal){
-		for (int i = 0; i < (*smoothKernelDimension); i++) {
-			int kY = y + (i - (*smoothKernelDimension/2));
+		for (int i = 0; i < N; i++) {
+			int kY = y + (i - (N/2));
 			if (kY < 0 || kY >= (*height)) 
 				kY = y;
 			
 			red += A[3 * (kY * (*width) + x)] 
-			* smoothKernel[(i * (*smoothKernelDimension))];
+			* smoothKernel[i];
 			green += A[3 * (kY * (*width) + x) + 1] 
-			* smoothKernel[(i * (*smoothKernelDimension))];
+			* smoothKernel[i];
 			blue += A[3 * (kY * (*width) + x) + 2]  
-			* smoothKernel[(i * (*smoothKernelDimension))];
+			* smoothKernel[i];
 		}
 
 	}else{
-		for (int i = 0; i < (*smoothKernelDimension); i++) {
-			int kX = x + (i - (*smoothKernelDimension/2));
+		for (int i = 0; i < N; i++) {
+			int kX = x + (i - (N/2));
 			if (kX < 0 || kX >= (*width)) 
 				kX = x;
 			
-			red += A[3 * (y * (*width) + x)] 
-			* smoothKernel[(i * (*smoothKernelDimension))];
-			green += A[3 * (y * (*width) + x) + 1] 
-			* smoothKernel[(i * (*smoothKernelDimension))];
-			blue += A[3 * (y * (*width) + x) + 2]  
-			* smoothKernel[(i * (*smoothKernelDimension))];
+			red += A[3 * (y * (*width) + kX)]
+			* smoothKernel[i];
+			green += A[3 * (y * (*width) + kX) + 1]
+			* smoothKernel[i];
+			blue += A[3 * (y * (*width) + kX) + 2]
+			* smoothKernel[i];
 		}
 	}
 
