@@ -55,7 +55,7 @@ namespace OpenCL {
         return App{
             status, device, context, commandQueue,
             nullptr, nullptr,
-            std::vector<std::shared_ptr<Argument>>()
+            std::map<cl_uint, std::shared_ptr<Argument>>()
         };
     }
 
@@ -65,6 +65,11 @@ namespace OpenCL {
         const std::string& key, cl_uint index, void* pointer, const std::optional<std::function<void(void*)>>& free,
         size_t size, cl_mem_flags flags, bool writeBuffer
     ) {
+        if (app.arguments.count(index)) {
+            printf("Error: Argument %i already present", index);
+            throw std::runtime_error("Argument " + std::to_string(index) + " already present");
+        }
+
         cl_mem buffer = clCreateBuffer(app.context, flags, size, nullptr, &app.status);
         checkStatus(app.status);
 
@@ -77,8 +82,28 @@ namespace OpenCL {
             ));
 
         auto arg = std::make_shared<Argument>(key, index, pointer, free, size, flags, writeBuffer, buffer);
-        app.arguments.emplace_back(arg);
+        app.arguments.insert({index, arg});
+
         return arg;
+    }
+
+    void removeArgument(App& app, const std::shared_ptr<Argument>& arg) {
+        // Free resources
+        checkStatus(clReleaseMemObject(arg->buffer));
+        if (auto freeFn = arg->free) {
+            (*freeFn)(arg->pointer);
+        }
+        app.arguments.erase(arg->index);
+    }
+
+    void changeArgumentIndex(App& app, const std::shared_ptr<Argument>& arg, cl_uint index) {
+        if (app.arguments.count(index)) {
+            printf("Error: Argument %i already present", index);
+            throw std::runtime_error("Argument " + std::to_string(index) + " already present");
+        }
+        app.arguments.erase(arg->index);
+        arg->index = index;
+        app.arguments.insert({index, arg});
     }
 
     void createKernel(App& app, const std::string& filename, const std::string& kernel) {
@@ -110,7 +135,15 @@ namespace OpenCL {
         checkStatus(app.status);
 
         // set the kernel arguments
-        for (auto& arg : app.arguments) {
+        for (auto& [_, arg] : app.arguments) {
+            checkStatus(clSetKernelArg(
+                app.kernel, arg->index, sizeof(cl_mem), &arg->buffer
+            ));
+        }
+    }
+
+    void refreshKernelArguments(App& app) {
+        for (auto& [_, arg] : app.arguments) {
             checkStatus(clSetKernelArg(
                 app.kernel, arg->index, sizeof(cl_mem), &arg->buffer
             ));
@@ -119,11 +152,11 @@ namespace OpenCL {
 
     void checkDeviceCapabilities(
         App& app,
-        std::function<bool(
+        const std::function<bool(
             size_t maxWorkGroupSize,
             cl_uint maxWorkItemDimensions,
             size_t* maxWorkItemSizes
-        )> check
+        )>& check
     ) {
         // output device capabilities
         size_t maxWorkGroupSize;
@@ -170,6 +203,10 @@ namespace OpenCL {
         ));
     }
 
+    void waitForEvents(cl_uint numEvents, const cl_event* eventList) {
+        clWaitForEvents(numEvents, eventList);
+    }
+
     void readBuffer(App& app, std::shared_ptr<Argument> arg, cl_bool blockingRead) {
         // read the device output buffer to the host output array
         // `clEnqueueReadBuffer` does not wait for the kernel unless `blocking_read` is set to `CL_TRUE`
@@ -184,7 +221,7 @@ namespace OpenCL {
         checkStatus(clReleaseKernel(app.kernel));
         checkStatus(clReleaseProgram(app.program));
 
-        for (auto& arg : app.arguments) {
+        for (auto& [_, arg] : app.arguments) {
             checkStatus(clReleaseMemObject(arg->buffer));
             if (auto freeFn = arg->free) {
                 (*freeFn)(arg->pointer);

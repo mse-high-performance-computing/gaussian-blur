@@ -16,40 +16,12 @@ __kernel void gaussian_blur(
 	size_t N = (*smoothKernelDimension) * (*smoothKernelDimension);
 
 	size_t index = 3 * (y * (*width) + x);
-	/*if (x == 255 && y == 511) {
-		// printf("x %i, y %i, index %i, width %i, height %i", x, y, index, width, height);
-		int baum = *width;
-		int baum2 = *height;
-		printf("---\n");
-		printf("index %i\n", index);
-		printf("index %i\n", A[index]);
-		printf("x %i\n", x);
-		printf("y %i\n", y);
-		printf("width %i\n", baum);
-		printf("height %i\n", baum2);
-		printf("dim %i\n", *smoothKernelDimension);
-		printf("---\n");
-	}*/
 
 	float red = 0;
 	float green = 0;
 	float blue = 0;
 
-	if(*horizontal){
-		for (int i = 0; i < N; i++) {
-			int kY = y + (i - (N/2));
-			if (kY < 0 || kY >= (*height)) 
-				kY = y;
-			
-			red += A[3 * (kY * (*width) + x)] 
-			* smoothKernel[i];
-			green += A[3 * (kY * (*width) + x) + 1] 
-			* smoothKernel[i];
-			blue += A[3 * (kY * (*width) + x) + 2]  
-			* smoothKernel[i];
-		}
-
-	}else{
+	if (*horizontal) {
 		for (int i = 0; i < N; i++) {
 			int kX = x + (i - (N/2));
 			if (kX < 0 || kX >= (*width)) 
@@ -62,12 +34,20 @@ __kernel void gaussian_blur(
 			blue += A[3 * (y * (*width) + kX) + 2]
 			* smoothKernel[i];
 		}
+	} else {
+		for (int i = 0; i < N; i++) {
+			int kY = y + (i - (N/2));
+			if (kY < 0 || kY >= (*height)) 
+				kY = y;
+			
+			red += A[3 * (kY * (*width) + x)] 
+			* smoothKernel[i];
+			green += A[3 * (kY * (*width) + x) + 1] 
+			* smoothKernel[i];
+			blue += A[3 * (kY * (*width) + x) + 2]  
+			* smoothKernel[i];
+		}
 	}
-
-	// red /= (*smoothKernelDimension);
-	// blue /= (*smoothKernelDimension);
-    // green /= (*smoothKernelDimension);
-
 
 	B[index] = red;
 	B[index+1] = green;

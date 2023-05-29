@@ -17,6 +17,7 @@
 #include <optional>
 #include <functional>
 #include <memory>
+#include <map>
 
 namespace {
     std::string cl_errorstring(cl_int err);
@@ -52,7 +53,7 @@ namespace OpenCL {
         cl_command_queue commandQueue;
         cl_program program;
         cl_kernel kernel;
-        std::vector<std::shared_ptr<Argument>> arguments;
+        std::map<cl_uint, std::shared_ptr<Argument>> arguments;
     };
 
     App setup();
@@ -68,19 +69,25 @@ namespace OpenCL {
         bool writeBuffer
     );
 
+    void removeArgument(App& app, const std::shared_ptr<Argument>& arg);
+
+    void changeArgumentIndex(App& app, const std::shared_ptr<Argument>& arg, cl_uint index);
+
     void createKernel(
         App& app,
         const std::string& filename,
         const std::string& kernel
     );
 
+    void refreshKernelArguments(App& app);
+
     void checkDeviceCapabilities(
         App& app,
-        std::function<bool(
+        const std::function<bool(
             size_t maxWorkGroupSize,
             cl_uint maxWorkItemDimensions,
             size_t* maxWorkItemSizes
-        )> check
+        )>& check
     );
 
     void enqueueKernel(
@@ -92,6 +99,8 @@ namespace OpenCL {
         cl_event* event_wait,
         cl_event* event
     );
+
+    void waitForEvents(cl_uint numEvents, const cl_event* eventList);
 
     void readBuffer(
         App& app,
