@@ -143,7 +143,7 @@ namespace OpenCL {
 
         // create the program
         app.program = clCreateProgramWithSource(app.context, 1, static_cast<const char**>(&programSourceArray),
-                                                       &programSize, &app.status);
+                                                &programSize, &app.status);
         checkStatus(app.status);
 
         // build the program
@@ -162,7 +162,7 @@ namespace OpenCL {
     }
 
     void refreshKernelArguments(App& app) {
-        for (auto& [_, arg] : app.arguments) {
+        for (auto& [_, arg]: app.arguments) {
             // Differentiate between global & local (buffer=nullptr) memory arguments
             auto argSize = arg->buffer == nullptr ? arg->size : sizeof(cl_mem);
             auto argValue = arg->buffer == nullptr ? nullptr : &arg->buffer;
@@ -177,7 +177,8 @@ namespace OpenCL {
         const std::function<bool(
             size_t maxWorkGroupSize,
             cl_uint maxWorkItemDimensions,
-            size_t* maxWorkItemSizes
+            size_t* maxWorkItemSizes,
+            cl_ulong maxLocalMemory
         )>& check
     ) {
         // output device capabilities
@@ -198,18 +199,18 @@ namespace OpenCL {
         auto* maxWorkItemSizes = static_cast<size_t*>(malloc(maxWorkItemDimensions * sizeof(size_t)));
         checkStatus(clGetDeviceInfo(
             app.device, CL_DEVICE_MAX_WORK_ITEM_SIZES, maxWorkItemDimensions * sizeof(size_t),
-            maxWorkItemSizes,nullptr
+            maxWorkItemSizes, nullptr
         ));
         printf("Device Capabilities: Max work items in group per dimension:");
         for (cl_uint i = 0; i < maxWorkItemDimensions; ++i)
             printf(" %u:%zu", i, maxWorkItemSizes[i]);
         printf("\n");
 
-        cl_ulong size;
-        clGetDeviceInfo(app.device, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(cl_ulong), &size, 0);
-        printf("Device Capabilities: Max local memory: %llu\n", size);
+        cl_ulong maxLocalMemory;
+        clGetDeviceInfo(app.device, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(cl_ulong), &maxLocalMemory, 0);
+        printf("Device Capabilities: Max local memory: %llu\n", maxLocalMemory);
 
-        auto ok = check(maxWorkGroupSize, maxWorkItemDimensions, maxWorkItemSizes);
+        auto ok = check(maxWorkGroupSize, maxWorkItemDimensions, maxWorkItemSizes, maxLocalMemory);
         free(maxWorkItemSizes);
 
         if (!ok) {
@@ -218,7 +219,8 @@ namespace OpenCL {
         }
     }
 
-    void enqueueKernel(App& app, cl_uint workDimensions, size_t* globalWorkSize, size_t* localWorkSize, cl_uint num_events_in_wait_list, cl_event* event_wait, cl_event* event) {
+    void enqueueKernel(App& app, cl_uint workDimensions, size_t* globalWorkSize, size_t* localWorkSize,
+                       cl_uint num_events_in_wait_list, cl_event* event_wait, cl_event* event) {
         // execute the kernel
         // ndrange capabilites only need to be checked when we specify a local work group size manually
         // in our case we provide NULL as local work group size, which means groups get formed automatically
@@ -233,7 +235,7 @@ namespace OpenCL {
         clWaitForEvents(numEvents, eventList);
     }
 
-    void readBuffer(App& app, std::shared_ptr<Argument> arg, cl_bool blockingRead) {
+    void readBuffer(App& app, const std::shared_ptr<Argument>& arg, cl_bool blockingRead) {
         // read the device output buffer to the host output array
         // `clEnqueueReadBuffer` does not wait for the kernel unless `blocking_read` is set to `CL_TRUE`
         checkStatus(clEnqueueReadBuffer(
@@ -247,7 +249,7 @@ namespace OpenCL {
         checkStatus(clReleaseKernel(app.kernel));
         checkStatus(clReleaseProgram(app.program));
 
-        for (auto& [_, arg] : app.arguments) {
+        for (auto& [_, arg]: app.arguments) {
             arg->freeResources();
         }
 

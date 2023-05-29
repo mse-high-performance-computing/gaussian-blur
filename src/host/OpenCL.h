@@ -95,7 +95,8 @@ namespace OpenCL {
         const std::function<bool(
             size_t maxWorkGroupSize,
             cl_uint maxWorkItemDimensions,
-            size_t* maxWorkItemSizes
+            size_t* maxWorkItemSizes,
+            cl_ulong maxLocalMemory
         )>& check
     );
 
@@ -113,7 +114,7 @@ namespace OpenCL {
 
     void readBuffer(
         App& app,
-        std::shared_ptr<Argument> arg,
+        const std::shared_ptr<Argument>& arg,
         cl_bool blockingRead
     );
 

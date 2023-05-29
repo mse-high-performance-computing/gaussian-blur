@@ -42,7 +42,7 @@ Image loadImage(const std::string& filename) {
 
     size_t size = width * height * channels * sizeof(cl_uchar);
 
-    return Image {
+    return Image{
         width, height, channels, size, data
     };
 }
@@ -50,7 +50,7 @@ Image loadImage(const std::string& filename) {
 struct SmoothKernel {
     cl_int dimension;
     size_t size;
-    cl_float * data;
+    cl_float* data;
 };
 
 void removeChar(std::string& str, char c) {
@@ -84,7 +84,7 @@ SmoothKernel loadSmoothKernel(const std::string& kernelInput) {
     if (dimension % 2 != 0) {
         auto data = strToFloat(kernelSplit);
         auto size = dimension * sizeof(cl_float);
-        return SmoothKernel {static_cast<cl_int>((cl_uint)dimension), size, data };
+        return SmoothKernel{static_cast<cl_int>((cl_uint) dimension), size, data};
     } else {
         printf("Unsupported kernel size: %zu\n", dimension);
         exit(1);
@@ -121,6 +121,7 @@ int main(int argc, char** argv) {
     auto imageInput = loadImage(filename);
     size_t width = imageInput.width;
     size_t height = imageInput.height;
+    auto channels = imageInput.channels;
     auto* tmpImage = static_cast<cl_uchar*>(malloc(imageInput.size));
     auto smoothKernel = loadSmoothKernel(kernelInput);
 
@@ -163,7 +164,7 @@ int main(int argc, char** argv) {
         app, "horizontal", 6, &isHorizontal, std::nullopt,
         sizeof(cl_bool), CL_MEM_READ_ONLY, true
     );
-    auto pixelArg = OpenCL::addLocalArgument(app, "pixel", 7, width * imageInput.channels * sizeof(cl_uchar));
+    auto pixelArg = OpenCL::addLocalArgument(app, "pixel", 7, width * channels * sizeof(cl_uchar));
 
 
     // read the kernel source
@@ -175,21 +176,24 @@ int main(int argc, char** argv) {
 
     // check device capabilities
     // check if image fits
-    OpenCL::checkDeviceCapabilities(app, [width, height](auto maxWorkGroupSize, auto maxWorkItemDimensions, auto* maxWorkItemSizes) {
+    OpenCL::checkDeviceCapabilities(app, [width, height, channels](
+        auto maxWorkGroupSize, auto maxWorkItemDimensions, auto* maxWorkItemSizes, auto maxLocalMemory
+    ) {
         if (maxWorkItemDimensions < 2) return false;
         if (maxWorkItemSizes[0] < width) return false;
         if (maxWorkItemSizes[1] < height) return false;
+        auto maxCachingSize = std::max(width, height) * channels * sizeof(cl_uchar);
+        if (maxLocalMemory < maxCachingSize) return false;
         return true;
     });
-    
-    // create events for synchronization
+
+    // create event for synchronization
     cl_event horizontalEvent;
-    cl_event verticalEvent;
 
     // execute the kernel
     // blur horizontally
     size_t globalWorkSize[2] = {width, height}; // https://stackoverflow.com/a/31379085
-    size_t localWorkSizeHorizontal[2] = { width, 1 };
+    size_t localWorkSizeHorizontal[2] = {width, 1};
     OpenCL::enqueueKernel(app, 2, globalWorkSize, localWorkSizeHorizontal, 0, nullptr, &horizontalEvent);
 
     // wait for horizontal kernel to finish
@@ -214,22 +218,22 @@ int main(int argc, char** argv) {
     );
     // local memory pixel cache
     OpenCL::removeArgument(app, pixelArg);
-    OpenCL::addLocalArgument(app, "pixel", 7, height * imageInput.channels * sizeof(cl_uchar));
+    OpenCL::addLocalArgument(app, "pixel", 7, height * channels * sizeof(cl_uchar));
     // Apply new arguments
     OpenCL::refreshKernelArguments(app);
 
     // execute the kernel
     // blur vertically
-    size_t localWorkSizeVertical[2] = { 1, height };
-    OpenCL::enqueueKernel(app, 2, globalWorkSize, localWorkSizeVertical, 0, nullptr, &verticalEvent);
+    size_t localWorkSizeVertical[2] = {1, height};
+    OpenCL::enqueueKernel(app, 2, globalWorkSize, localWorkSizeVertical, 0, nullptr, nullptr);
 
     // read the device output buffer to the host output array
     OpenCL::readBuffer(app, imageOutputArg, CL_TRUE);
-    
+
     // output result to file
     stbi_write_png(
         "blurred.png", imageInput.width, imageInput.height,
-        imageInput.channels, imageOutput, imageInput.width * imageInput.channels
+        channels, imageOutput, imageInput.width * channels
     );
     printf("Blurred image written in 'blurred.png'\n");
 
