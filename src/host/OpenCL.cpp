@@ -119,11 +119,11 @@ namespace OpenCL {
 
     void checkDeviceCapabilities(
         App& app,
-        const std::function<bool(
+        std::function<bool(
             size_t maxWorkGroupSize,
             cl_uint maxWorkItemDimensions,
             size_t* maxWorkItemSizes
-        )>& check
+        )> check
     ) {
         // output device capabilities
         size_t maxWorkGroupSize;
@@ -159,14 +159,14 @@ namespace OpenCL {
         }
     }
 
-    void enqueueKernel(App& app, cl_uint workDimensions, size_t* globalWorkSize) {
+    void enqueueKernel(App& app, cl_uint workDimensions, size_t* globalWorkSize, size_t* localWorkSize, cl_uint num_events_in_wait_list, cl_event* event_wait, cl_event* event) {
         // execute the kernel
         // ndrange capabilites only need to be checked when we specify a local work group size manually
         // in our case we provide NULL as local work group size, which means groups get formed automatically
         checkStatus(clEnqueueNDRangeKernel(
             app.commandQueue, app.kernel, workDimensions,
-            nullptr, globalWorkSize, nullptr,
-            0, nullptr, nullptr
+            nullptr, globalWorkSize, localWorkSize,
+            num_events_in_wait_list, event_wait, event
         ));
     }
 

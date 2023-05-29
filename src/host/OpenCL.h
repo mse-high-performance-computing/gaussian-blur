@@ -76,17 +76,21 @@ namespace OpenCL {
 
     void checkDeviceCapabilities(
         App& app,
-        const std::function<bool(
+        std::function<bool(
             size_t maxWorkGroupSize,
             cl_uint maxWorkItemDimensions,
             size_t* maxWorkItemSizes
-        )>& check
+        )> check
     );
 
     void enqueueKernel(
         App& app,
         cl_uint workDimensions,
-        size_t* globalWorkSize
+        size_t* globalWorkSize,
+        size_t* localWorkSize,
+        cl_uint num_events_in_wait_list,
+        cl_event* event_wait,
+        cl_event* event
     );
 
     void readBuffer(
