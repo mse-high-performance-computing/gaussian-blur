@@ -42,7 +42,7 @@ Image loadImage(const std::string& filename) {
 
     size_t size = width * height * channels * sizeof(cl_uchar);
 
-    return Image {
+    return Image{
         width, height, channels, size, data
     };
 }
@@ -50,7 +50,7 @@ Image loadImage(const std::string& filename) {
 struct SmoothKernel {
     cl_int dimension;
     size_t size;
-    cl_float * data;
+    cl_float* data;
 };
 
 void removeChar(std::string& str, char c) {
@@ -79,15 +79,14 @@ SmoothKernel loadSmoothKernel(const std::string& kernelInput) {
     removeChar(kernelRaw, '(');
     removeChar(kernelRaw, ')');
     auto kernelSplit = splitStr(kernelRaw, ',');
-    // Check if dimension is ok (odd + perfect square)
-    auto length = kernelSplit.size();
-    long long dimension = std::floor(sqrt(length));
-    if (dimension * dimension == length && length && length % 2 != 0) {
+    // Check if dimension is ok (odd)
+    auto dimension = kernelSplit.size();
+    if (dimension % 2 != 0) {
         auto data = strToFloat(kernelSplit);
-        auto size = length * sizeof(cl_float);
-        return SmoothKernel {static_cast<cl_int>((cl_uint)dimension), size, data };
+        auto size = dimension * sizeof(cl_float);
+        return SmoothKernel{static_cast<cl_int>((cl_uint) dimension), size, data};
     } else {
-        printf("Unsupported kernel size: %zu\n", length);
+        printf("Unsupported kernel size: %zu\n", dimension);
         exit(1);
     }
 }
@@ -120,6 +119,9 @@ int main(int argc, char** argv) {
     printf("  Kernel: %s\n", kernelInput.c_str());
 
     auto imageInput = loadImage(filename);
+    size_t width = imageInput.width;
+    size_t height = imageInput.height;
+    auto channels = imageInput.channels;
     auto* tmpImage = static_cast<cl_uchar*>(malloc(imageInput.size));
     auto smoothKernel = loadSmoothKernel(kernelInput);
 
@@ -128,147 +130,115 @@ int main(int argc, char** argv) {
     // select the device
     // create context
     // create command queue
-    auto appHorizontal = OpenCL::setup();
+    auto app = OpenCL::setup();
     cl_bool isHorizontal = true;
 
     // allocate buffers
-    OpenCL::addArgument(
-        appHorizontal, "imageInput", 0, imageInput.data,
+    auto imageInputArg = OpenCL::addArgument(
+        app, "imageInput", 0, imageInput.data,
         [](void* pointer) { stbi_image_free(pointer); },
         imageInput.size, CL_MEM_READ_ONLY, true
     );
-    auto tmpOutput = OpenCL::addArgument(
-        appHorizontal, "imageOutput", 1, tmpImage,
+    auto tmpImageArg = OpenCL::addArgument(
+        app, "imageOutput", 1, tmpImage,
         [](void* pointer) { free(pointer); },
-        imageInput.size, CL_MEM_WRITE_ONLY, false
+        imageInput.size, CL_MEM_READ_WRITE, false
     );
     OpenCL::addArgument(
-        appHorizontal, "width", 2, &imageInput.width, std::nullopt,
+        app, "width", 2, &imageInput.width, std::nullopt,
         sizeof(cl_int), CL_MEM_READ_ONLY, true
     );
     OpenCL::addArgument(
-        appHorizontal, "height", 3, &imageInput.height, std::nullopt,
+        app, "height", 3, &imageInput.height, std::nullopt,
         sizeof(cl_int), CL_MEM_READ_ONLY, true
     );
     OpenCL::addArgument(
-        appHorizontal, "smoothKernel", 4, smoothKernel.data, std::nullopt,
+        app, "smoothKernel", 4, smoothKernel.data, std::nullopt,
         smoothKernel.size, CL_MEM_READ_ONLY, true
     );
     OpenCL::addArgument(
-        appHorizontal, "smoothKernelDimension", 5, &smoothKernel.dimension, std::nullopt,
+        app, "smoothKernelDimension", 5, &smoothKernel.dimension, std::nullopt,
         sizeof(cl_int), CL_MEM_READ_ONLY, true
     );
-    OpenCL::addArgument(
-        appHorizontal, "horizontal", 6, &isHorizontal, std::nullopt,
+    auto horizontalArg = OpenCL::addArgument(
+        app, "horizontal", 6, &isHorizontal, std::nullopt,
         sizeof(cl_bool), CL_MEM_READ_ONLY, true
     );
-    
-    
+    auto pixelArg = OpenCL::addLocalArgument(app, "pixel", 7, width * channels * sizeof(cl_uchar));
+
+
     // read the kernel source
     // create the program
     // build the program
     // create the given kernel
     // set the kernel arguments
-    OpenCL::createKernel(appHorizontal, "kernel/gaussian_blur.cl", "gaussian_blur");
+    OpenCL::createKernel(app, "kernel/gaussian_blur.cl", "gaussian_blur");
 
     // check device capabilities
     // check if image fits
-    size_t width = imageInput.width;
-    size_t height = imageInput.height;
-    OpenCL::checkDeviceCapabilities(appHorizontal, [width, height](auto maxWorkGroupSize, auto maxWorkItemDimensions, auto* maxWorkItemSizes) {
+    OpenCL::checkDeviceCapabilities(app, [width, height, channels](
+        auto maxWorkGroupSize, auto maxWorkItemDimensions, auto* maxWorkItemSizes, auto maxLocalMemory
+    ) {
         if (maxWorkItemDimensions < 2) return false;
         if (maxWorkItemSizes[0] < width) return false;
         if (maxWorkItemSizes[1] < height) return false;
+        auto maxCachingSize = std::max(width, height) * channels * sizeof(cl_uchar);
+        if (maxLocalMemory < maxCachingSize) return false;
         return true;
     });
-    
-    // Create events for synchronization
+
+    // create event for synchronization
     cl_event horizontalEvent;
-    cl_event verticalEvent;
 
     // execute the kernel
-    // ndrange capabilites only need to be checked when we specify a local work group size manually
-    // in our case we provide NULL as local work group size, which means groups get formed automatically
+    // blur horizontally
     size_t globalWorkSize[2] = {width, height}; // https://stackoverflow.com/a/31379085
-    size_t localWorkSizeHorizontal[2] = { 1, height };
-    
-    OpenCL::enqueueKernel(appHorizontal, 2, globalWorkSize,localWorkSizeHorizontal,0,nullptr,&horizontalEvent);
-    
-    clWaitForEvents(1, &horizontalEvent);
+    size_t localWorkSizeHorizontal[2] = {width, 1};
+    OpenCL::enqueueKernel(app, 2, globalWorkSize, localWorkSizeHorizontal, 0, nullptr, &horizontalEvent);
 
+    // wait for horizontal kernel to finish
+    OpenCL::waitForEvents(1, &horizontalEvent);
 
-    // read the device output buffer to the host output array
-    OpenCL::readBuffer(appHorizontal, tmpOutput, CL_TRUE);
-
-    auto* outputImage = static_cast<cl_uchar*>(malloc(imageInput.size));
-
-    // select the platform
-    // retrieve the number of devices
-    // select the device
-    // create context
-    // create command queue
-    auto appVertical = OpenCL::setup();
-    cl_bool isVertical = true;
-
-    // allocate buffers
+    // prepare second pass
+    // change direction
+    OpenCL::removeArgument(app, horizontalArg);
+    isHorizontal = false;
     OpenCL::addArgument(
-        appVertical, "imageInput", 0, tmpImage,
-        [](void* pointer) { stbi_image_free(pointer); },
-        imageInput.size, CL_MEM_READ_ONLY, true
+        app, "horizontal", 6, &isHorizontal, std::nullopt,
+        sizeof(cl_bool), CL_MEM_READ_ONLY, true
     );
-    auto output = OpenCL::addArgument(
-        appVertical, "imageOutput", 1, outputImage,
+    // swap & create buffers
+    OpenCL::removeArgument(app, imageInputArg);
+    OpenCL::changeArgumentIndex(app, tmpImageArg, 0);
+    auto* imageOutput = static_cast<cl_uchar*>(malloc(imageInput.size));
+    auto imageOutputArg = OpenCL::addArgument(
+        app, "imageOutput", 1, imageOutput,
         [](void* pointer) { free(pointer); },
         imageInput.size, CL_MEM_WRITE_ONLY, false
     );
-    OpenCL::addArgument(
-        appVertical, "width", 2, &imageInput.width, std::nullopt,
-        sizeof(cl_int), CL_MEM_READ_ONLY, true
-    );
-    OpenCL::addArgument(
-        appVertical, "height", 3, &imageInput.height, std::nullopt,
-        sizeof(cl_int), CL_MEM_READ_ONLY, true
-    );
-    OpenCL::addArgument(
-        appVertical, "smoothKernel", 4, smoothKernel.data, std::nullopt,
-        smoothKernel.size, CL_MEM_READ_ONLY, true
-    );
-    OpenCL::addArgument(
-        appVertical, "smoothKernelDimension", 5, &smoothKernel.dimension, std::nullopt,
-        sizeof(cl_int), CL_MEM_READ_ONLY, true
-    );
-    OpenCL::addArgument(
-        appVertical, "horizontal", 6, &isVertical, std::nullopt,
-        sizeof(cl_bool), CL_MEM_READ_ONLY, true
-    );
-    
-    
-    // read the kernel source
-    // create the program
-    // build the program
-    // create the given kernel
-    // set the kernel arguments
-    OpenCL::createKernel(appVertical, "kernel/gaussian_blur.cl", "gaussian_blur");
-    
-    size_t localWorkSizeVertical[2] = { width, 1 };
-    
-    OpenCL::enqueueKernel(appVertical, 2, globalWorkSize,localWorkSizeVertical,0,nullptr,&verticalEvent);
-    
-    clWaitForEvents(1, &verticalEvent);
+    // local memory pixel cache
+    OpenCL::removeArgument(app, pixelArg);
+    OpenCL::addLocalArgument(app, "pixel", 7, height * channels * sizeof(cl_uchar));
+    // Apply new arguments
+    OpenCL::refreshKernelArguments(app);
 
+    // execute the kernel
+    // blur vertically
+    size_t localWorkSizeVertical[2] = {1, height};
+    OpenCL::enqueueKernel(app, 2, globalWorkSize, localWorkSizeVertical, 0, nullptr, nullptr);
 
     // read the device output buffer to the host output array
-    OpenCL::readBuffer(appVertical, output, CL_TRUE);
-    
+    OpenCL::readBuffer(app, imageOutputArg, CL_TRUE);
+
     // output result to file
     stbi_write_png(
         "blurred.png", imageInput.width, imageInput.height,
-        imageInput.channels, outputImage, imageInput.width * imageInput.channels
+        channels, imageOutput, imageInput.width * channels
     );
     printf("Blurred image written in 'blurred.png'\n");
 
     // release allocated resources
-    OpenCL::release(appHorizontal);
+    OpenCL::release(app);
 
     exit(EXIT_SUCCESS);
 }

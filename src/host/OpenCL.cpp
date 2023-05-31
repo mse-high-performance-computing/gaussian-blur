@@ -16,6 +16,15 @@ namespace OpenCL {
                                                           size(size), flags(flags), writeBuffer(writeBuffer),
                                                           buffer(buffer) {}
 
+    void Argument::freeResources() {
+        if (buffer == nullptr) return; // local memory
+
+        checkStatus(clReleaseMemObject(buffer));
+        if (auto freeFn = free) {
+            (*freeFn)(pointer);
+        }
+    }
+
     App setup() {
         cl_int status;
         // retrieve the number of platforms
@@ -55,7 +64,7 @@ namespace OpenCL {
         return App{
             status, device, context, commandQueue,
             nullptr, nullptr,
-            std::vector<std::shared_ptr<Argument>>()
+            std::map<cl_uint, std::shared_ptr<Argument>>()
         };
     }
 
@@ -65,6 +74,11 @@ namespace OpenCL {
         const std::string& key, cl_uint index, void* pointer, const std::optional<std::function<void(void*)>>& free,
         size_t size, cl_mem_flags flags, bool writeBuffer
     ) {
+        if (app.arguments.count(index)) {
+            printf("Error: Argument %i already present", index);
+            throw std::runtime_error("Argument " + std::to_string(index) + " already present");
+        }
+
         cl_mem buffer = clCreateBuffer(app.context, flags, size, nullptr, &app.status);
         checkStatus(app.status);
 
@@ -77,8 +91,42 @@ namespace OpenCL {
             ));
 
         auto arg = std::make_shared<Argument>(key, index, pointer, free, size, flags, writeBuffer, buffer);
-        app.arguments.emplace_back(arg);
+        app.arguments.insert({index, arg});
+
         return arg;
+    }
+
+    std::shared_ptr<Argument> addLocalArgument(
+        App& app,
+        const std::string& key,
+        cl_uint index,
+        size_t size
+    ) {
+        if (app.arguments.count(index)) {
+            printf("Error: Argument %i already present", index);
+            throw std::runtime_error("Argument " + std::to_string(index) + " already present");
+        }
+
+        auto arg = std::make_shared<Argument>(key, index, nullptr, free, size, CL_MEM_FLAGS, false, nullptr);
+        app.arguments.insert({index, arg});
+
+        return arg;
+    }
+
+    void removeArgument(App& app, const std::shared_ptr<Argument>& arg) {
+        // Free resources
+        arg->freeResources();
+        app.arguments.erase(arg->index);
+    }
+
+    void changeArgumentIndex(App& app, const std::shared_ptr<Argument>& arg, cl_uint index) {
+        if (app.arguments.count(index)) {
+            printf("Error: Argument %i already present", index);
+            throw std::runtime_error("Argument " + std::to_string(index) + " already present");
+        }
+        app.arguments.erase(arg->index);
+        arg->index = index;
+        app.arguments.insert({index, arg});
     }
 
     void createKernel(App& app, const std::string& filename, const std::string& kernel) {
@@ -95,7 +143,7 @@ namespace OpenCL {
 
         // create the program
         app.program = clCreateProgramWithSource(app.context, 1, static_cast<const char**>(&programSourceArray),
-                                                       &programSize, &app.status);
+                                                &programSize, &app.status);
         checkStatus(app.status);
 
         // build the program
@@ -110,20 +158,28 @@ namespace OpenCL {
         checkStatus(app.status);
 
         // set the kernel arguments
-        for (auto& arg : app.arguments) {
+        refreshKernelArguments(app);
+    }
+
+    void refreshKernelArguments(App& app) {
+        for (auto& [_, arg]: app.arguments) {
+            // Differentiate between global & local (buffer=nullptr) memory arguments
+            auto argSize = arg->buffer == nullptr ? arg->size : sizeof(cl_mem);
+            auto argValue = arg->buffer == nullptr ? nullptr : &arg->buffer;
             checkStatus(clSetKernelArg(
-                app.kernel, arg->index, sizeof(cl_mem), &arg->buffer
+                app.kernel, arg->index, argSize, argValue
             ));
         }
     }
 
     void checkDeviceCapabilities(
         App& app,
-        std::function<bool(
+        const std::function<bool(
             size_t maxWorkGroupSize,
             cl_uint maxWorkItemDimensions,
-            size_t* maxWorkItemSizes
-        )> check
+            size_t* maxWorkItemSizes,
+            cl_ulong maxLocalMemory
+        )>& check
     ) {
         // output device capabilities
         size_t maxWorkGroupSize;
@@ -143,14 +199,18 @@ namespace OpenCL {
         auto* maxWorkItemSizes = static_cast<size_t*>(malloc(maxWorkItemDimensions * sizeof(size_t)));
         checkStatus(clGetDeviceInfo(
             app.device, CL_DEVICE_MAX_WORK_ITEM_SIZES, maxWorkItemDimensions * sizeof(size_t),
-            maxWorkItemSizes,nullptr
+            maxWorkItemSizes, nullptr
         ));
         printf("Device Capabilities: Max work items in group per dimension:");
         for (cl_uint i = 0; i < maxWorkItemDimensions; ++i)
             printf(" %u:%zu", i, maxWorkItemSizes[i]);
         printf("\n");
 
-        auto ok = check(maxWorkGroupSize, maxWorkItemDimensions, maxWorkItemSizes);
+        cl_ulong maxLocalMemory;
+        clGetDeviceInfo(app.device, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(cl_ulong), &maxLocalMemory, 0);
+        printf("Device Capabilities: Max local memory: %llu\n", maxLocalMemory);
+
+        auto ok = check(maxWorkGroupSize, maxWorkItemDimensions, maxWorkItemSizes, maxLocalMemory);
         free(maxWorkItemSizes);
 
         if (!ok) {
@@ -159,7 +219,8 @@ namespace OpenCL {
         }
     }
 
-    void enqueueKernel(App& app, cl_uint workDimensions, size_t* globalWorkSize, size_t* localWorkSize, cl_uint num_events_in_wait_list, cl_event* event_wait, cl_event* event) {
+    void enqueueKernel(App& app, cl_uint workDimensions, size_t* globalWorkSize, size_t* localWorkSize,
+                       cl_uint num_events_in_wait_list, cl_event* event_wait, cl_event* event) {
         // execute the kernel
         // ndrange capabilites only need to be checked when we specify a local work group size manually
         // in our case we provide NULL as local work group size, which means groups get formed automatically
@@ -170,7 +231,11 @@ namespace OpenCL {
         ));
     }
 
-    void readBuffer(App& app, std::shared_ptr<Argument> arg, cl_bool blockingRead) {
+    void waitForEvents(cl_uint numEvents, const cl_event* eventList) {
+        clWaitForEvents(numEvents, eventList);
+    }
+
+    void readBuffer(App& app, const std::shared_ptr<Argument>& arg, cl_bool blockingRead) {
         // read the device output buffer to the host output array
         // `clEnqueueReadBuffer` does not wait for the kernel unless `blocking_read` is set to `CL_TRUE`
         checkStatus(clEnqueueReadBuffer(
@@ -184,11 +249,8 @@ namespace OpenCL {
         checkStatus(clReleaseKernel(app.kernel));
         checkStatus(clReleaseProgram(app.program));
 
-        for (auto& arg : app.arguments) {
-            checkStatus(clReleaseMemObject(arg->buffer));
-            if (auto freeFn = arg->free) {
-                (*freeFn)(arg->pointer);
-            }
+        for (auto& [_, arg]: app.arguments) {
+            arg->freeResources();
         }
 
         checkStatus(clReleaseCommandQueue(app.commandQueue));
