@@ -38,9 +38,10 @@ __kernel void gaussian_blur(
 		k = clamp(k, 0, (int)localMax);
 
 		size_t kIndex = channels * k;
-		red += pixel[kIndex] * smoothKernel[i];
-		green += pixel[kIndex + 1] * smoothKernel[i];
-		blue += pixel[kIndex + 2] * smoothKernel[i];
+		float kernelValue = smoothKernel[i];
+		red += pixel[kIndex] * kernelValue;
+		green += pixel[kIndex + 1] * kernelValue;
+		blue += pixel[kIndex + 2] * kernelValue;
 	}
 
 	// Write results for each color component
